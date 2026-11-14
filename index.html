@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f7f6">
+  <meta name="description" content="HTML・CSS・JavaScriptなどのファイルやフォルダ、ZIPをまとめてプレビュー。ASRO Preview">
+  <title>ASRO Preview</title>
+  <link rel="stylesheet" href="./style.css">
+  <script src="./zip.js" defer></script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell" id="appShell">
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="ASRO Preview トップ">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 42 42" fill="none"><path d="M6 35 19.5 6a2 2 0 0 1 3 0L36 35" stroke="currentColor" stroke-width="4.1" stroke-linecap="square"/><path d="M13 31c0-6.8 3.5-10.5 8-10.5S29 24.2 29 31" stroke="currentColor" stroke-width="3.9" stroke-linecap="round"/></svg></span>
+        <span class="brand-name">ASRO <span>Preview</span></span>
+      </a>
+      <div class="topbar-actions">
+        <span class="privacy"><span class="privacy-dot"></span> ファイルは送信されません</span>
+        <button class="button button-outline toolbar-add" id="addButton" type="button" hidden>+ ファイルを追加</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <section id="emptyView" class="empty-view" aria-labelledby="heroTitle">
+        <div class="empty-art" aria-hidden="true">
+          <div class="window window-back"><i></i><i></i><i></i><span>&lt;/&gt;</span></div>
+          <div class="window window-front"><i></i><i></i><i></i><span class="code-line first"></span><span class="code-line second"></span><span class="code-line third"></span></div>
+        </div>
+        <p class="eyebrow">ASRO PREVIEW</p>
+        <h1 id="heroTitle">ファイルを、<br>そのままプレビュー。</h1>
+        <p class="hero-description">HTML・CSS・JavaScript・画像などをまとめて読み込み。<br class="desktop-break"> 複数ファイルでも、フォルダでも、ZIPでも。</p>
+        <div class="upload-box" id="uploadBox" tabindex="0" role="button" aria-label="ここにファイルをドロップ、またはファイルを選択">
+          <div class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M4 15.5v2.8A1.7 1.7 0 0 0 5.7 20h12.6a1.7 1.7 0 0 0 1.7-1.7v-2.8"/></svg></div>
+          <strong>ここにファイルをドロップ</strong>
+          <span>または下のボタンから選択</span>
+          <div class="upload-actions">
+            <button class="button button-primary" id="pickFiles" type="button">ファイルを選ぶ</button>
+            <button class="button button-outline" id="pickFolder" type="button">フォルダを選ぶ</button>
+          </div>
+          <small>.html / .css / .js / .zip などに対応</small>
+        </div>
+        <p class="tiny-note" id="emptyStatus" role="status" aria-live="polite">ログイン不要・ブラウザだけで完結</p>
+      </section>
+
+      <section id="workspace" class="workspace" aria-label="プレビュー画面" hidden>
+        <aside class="sidebar" id="sidebar">
+          <div class="sidebar-top"><span>FILES</span><span id="fileCount" class="file-count">0</span></div>
+          <div class="file-list" id="fileList" role="list" aria-label="読み込んだファイル"></div>
+          <div class="sidebar-bottom"><button id="addFolderButton" class="text-button" type="button">＋ フォルダを追加</button><button id="replaceButton" class="text-button" type="button">↻ 新しいプロジェクト</button></div>
+        </aside>
+        <div class="viewer">
+          <div class="viewer-toolbar">
+            <button class="mobile-files button-icon" id="toggleFiles" type="button" aria-label="ファイル一覧を表示" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+            <div class="viewer-title"><span class="viewer-dot"></span><span id="currentTitle" title="">プレビュー</span></div>
+            <div class="viewer-toolbar-right">
+              <label for="entrySelect" class="entry-label">表示</label>
+              <select id="entrySelect" aria-label="プレビューするHTMLファイル"></select>
+              <button class="button-icon" id="reloadButton" type="button" aria-label="再読み込み" title="再読み込み"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.2 6M20 4v7h-7"/></svg></button>
+            </div>
+          </div>
+          <div id="renderSurface" class="render-surface">
+            <iframe id="previewFrame" title="HTML プレビュー" sandbox="allow-scripts" referrerpolicy="no-referrer" hidden></iframe>
+            <pre id="codePreview" class="code-preview" hidden><code></code></pre>
+            <div id="imageSurface" class="image-surface" hidden><img id="imagePreview" alt="選択中の画像"></div>
+            <div id="mediaSurface" class="media-surface" hidden></div>
+            <div id="unsupportedSurface" class="unsupported-surface" hidden><span>このファイルはブラウザ内で直接表示できません。</span></div>
+            <div id="loadingSurface" class="loading-surface" hidden>準備中...</div>
+          </div>
+          <div class="viewer-footer"><span id="viewerStatus" role="status" aria-live="polite">準備完了</span><span class="footer-right">LOCAL PREVIEW <span class="footer-divider">·</span> ASRO</span></div>
+        </div>
+      </section>
+    </main>
+    <input type="file" id="fileInput" multiple accept=".html,.htm,.css,.js,.mjs,.json,.svg,.png,.jpg,.jpeg,.gif,.webp,.ico,.woff,.woff2,.ttf,.mp4,.webm,.mp3,.ogg,.wav,.pdf,.md,.txt,.zip,*/*" hidden>
+    <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
+    <div id="toast" class="toast" role="alert" aria-live="assertive" hidden></div>
+  </div>
+</body>
+</html>
