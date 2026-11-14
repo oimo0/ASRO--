@@ -14,6 +14,9 @@ HTML・CSS・JavaScript・画像などが入った**複数ファイルのWebサ�
 - **JavaScriptモジュール**：静的import・export・動的importをインポートマップで解決
 - **ローカルfetch**：`fetch('./data.json')` などは読み込んだファイルから取得（※HTMLからの相対パス）
 - **コード表示**：JS・CSS・JSON・テキストをファイル一覧から確認
+- **Canvas / WebGL**：Canvas 2D・WebGL / WebGL2を使うアニメーションや3Dシーンに対応（ブラウザ・GPU依存）
+- **音声と動画**：Web Audio、ブラウザ音声合成、MediaRecorder、canvas.captureStreamを利用した再生・動画保存を許可
+- **3D操作**：ポインターロック、フルスクリーン、マウス/タッチ操作に対応
 - **レスポンシブ**：PC・スマホ対応
 
 ## 使い方
@@ -41,10 +44,17 @@ GitHub Pagesを使う場合は **Settings → Pages → Deploy from a branch →
 ## 安全性とプライバシー
 
 - 選択したファイルは**サーバーへアップロードされない**。ブラウザのメモリ内で処理し、プロジェクトを閉じると参照を解放する。
-- HTML / JavaScriptの実行は `sandbox="allow-scripts"` を付けた**不透明オリジン**のiframeで行う。`allow-same-origin` を使わず、親ページのDOM・Cookie・ストレージにアクセスさせない。
+- HTML / JavaScriptの実行は `sandbox="allow-scripts allow-downloads allow-pointer-lock allow-modals"` を付けた**不透明オリジン**のiframeで行う。`allow-same-origin` を使わず、親ページのDOM・Cookie・ストレージにアクセスさせない。
 - 相対ファイル参照は `data:` URLに置き換える。ローカル `fetch` は、**読み込んだファイルだけ**を親ページから `postMessage` で渡す。
 - プレビューに含まれる外部リンクや外部API呼び出しが、**ブラウザから外部へアクセスすることはある**。不明なコードのプレビューには注意。
 - インポートできるのは最大2,000ファイル・150MB。ZIPは100MB以下、標準ZIPの `store` / `deflate` に対応。暗号化ZIP・分割ZIP・ZIP64は非対応。
+
+## Asra 3分動画・3Dとの互換性
+
+- 添付の `asra_intro_3min.html` のような1ファイルCanvasアニメーション・Web Audio・録画UIを想定。録画にはユーザー操作、対応ブラウザ、再生時間分の実時間が必要。
+- WebGL / WebGL2 はブラウザと端末のGPUが対応していれば描画可能。Three.js / Babylon.js のCDN読み込みは外部通信・CORS・CDNの稼働に依存。
+- 読み込んだ`node_modules/three` の一部ESモジュールimportには対応するが、バンドラー固有の処理は不要にはならない。
+- sandboxを維持するため、WebGPU・Service Worker・IndexedDB等のオリジン依存APIは完全互換ではない。外部APIのCORS制限も解除できない。
 
 ## 制約
 
