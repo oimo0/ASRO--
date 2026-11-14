@@ -58,11 +58,12 @@
             <div class="viewer-toolbar-right">
               <label for="entrySelect" class="entry-label">表示</label>
               <select id="entrySelect" aria-label="プレビューするHTMLファイル"></select>
+              <button class="button-icon" id="fullscreenButton" type="button" aria-label="プレビューを全画面表示" title="全画面表示">⛶</button>
               <button class="button-icon" id="reloadButton" type="button" aria-label="再読み込み" title="再読み込み"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.2 6M20 4v7h-7"/></svg></button>
             </div>
           </div>
           <div id="renderSurface" class="render-surface">
-            <iframe id="previewFrame" title="HTML プレビュー" sandbox="allow-scripts" referrerpolicy="no-referrer" hidden></iframe>
+            <iframe id="previewFrame" title="HTML プレビュー" sandbox="allow-scripts allow-downloads allow-pointer-lock allow-modals" allow="fullscreen; autoplay; clipboard-write" allowfullscreen referrerpolicy="no-referrer" hidden></iframe>
             <pre id="codePreview" class="code-preview" hidden><code></code></pre>
             <div id="imageSurface" class="image-surface" hidden><img id="imagePreview" alt="選択中の画像"></div>
             <div id="mediaSurface" class="media-surface" hidden></div>
