@@ -7,7 +7,7 @@
     const elements = Object.fromEntries([
     'appShell','emptyView','workspace','uploadBox','pickFiles','pickFolder','fileInput','folderInput',
     'addButton','addFolderButton','replaceButton','fileList','fileCount','sidebar','toggleFiles','currentTitle',
-    'entrySelect','reloadButton','previewFrame','codePreview','imageSurface','imagePreview',
+    'entrySelect','reloadButton','fullscreenButton','previewFrame','codePreview','imageSurface','imagePreview',
     'mediaSurface','unsupportedSurface','loadingSurface','viewerStatus','emptyStatus','toast'
   ].map(id => [id, document.getElementById(id)]));
   const state = { files:new Map(),current:null,revision:0,busy:false,dataURLs:new Map(),token:null,objectURL:null };
@@ -124,6 +124,15 @@
       const blob=state.files.get(path);
       if(blob.size>8*1024*1024)throw new Error('JavaScriptファイルは1つ8MB以下にしてね。');
       imports[moduleKey(path)]=await dataURL(path,rewriteJS(await blob.text(),path));
+    }
+    // Enable imports for uploaded Three.js ESM modules.
+    const known = [['three','node_modules/three/build/three.module.js'],['@babylonjs/core','node_modules/@babylonjs/core/index.js'],['@babylonjs/loaders','node_modules/@babylonjs/loaders/index.js']];
+    for(const [name,path] of known)if(imports[moduleKey(path)])imports[name]=imports[moduleKey(path)];
+    for(const path of state.files.keys()) {
+      if(!path.startsWith('node_modules/three/examples/jsm/') || !/\.(?:js|mjs)$/i.test(path))continue;
+      const sub=path.slice('node_modules/three/examples/jsm/'.length);
+      imports['three/addons/'+sub]=imports[moduleKey(path)];
+      imports['three/examples/jsm/'+sub]=imports[moduleKey(path)];
     }
     return imports;
   }
@@ -382,6 +391,13 @@
   elements.folderInput.addEventListener('change',()=>processFileInput(elements.folderInput));
   elements.entrySelect.addEventListener('change',()=>{const path=elements.entrySelect.value;if(path)selectFile(path);});
   elements.reloadButton.addEventListener('click',()=>{if(state.current)selectFile(state.current);});
+  elements.fullscreenButton.addEventListener('click', async()=>{
+    try {
+      if(document.fullscreenElement) await document.exitFullscreen();
+      else if(!elements.previewFrame.hidden) await elements.previewFrame.requestFullscreen();
+      else await document.getElementById('renderSurface').requestFullscreen();
+    } catch(error) { showToast('このブラウザでは全画面表示を利用できません。'); }
+  });
   elements.toggleFiles.addEventListener('click',()=>{const open=!elements.sidebar.classList.contains('open');elements.sidebar.classList.toggle('open',open);elements.toggleFiles.setAttribute('aria-expanded',String(open));});
   elements.uploadBox.addEventListener('click',event=>{if(event.target.closest('button'))return;elements.fileInput.click();});
   elements.uploadBox.addEventListener('keydown',event=>{if(event.target!==elements.uploadBox)return;if(event.key==='Enter'||event.key===' '){event.preventDefault();elements.fileInput.click();}});
