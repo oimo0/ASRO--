@@ -1,16 +1,17 @@
 /* ASRO Preview - static, local-only multi-file web preview. */
 (() => {
   'use strict';
-    const MAX_FILES = 2000;
+  const MAX_FILES = 2000;
   const MAX_TOTAL = 150 * 1024 * 1024;
   const TEXT_LIMIT = 2 * 1024 * 1024;
-    const elements = Object.fromEntries([
+  const elements = Object.fromEntries([
     'appShell','emptyView','workspace','uploadBox','pickFiles','pickFolder','fileInput','folderInput',
     'addButton','addFolderButton','replaceButton','fileList','fileCount','sidebar','toggleFiles','currentTitle',
     'entrySelect','reloadButton','fullscreenButton','previewFrame','codePreview','imageSurface','imagePreview',
-    'mediaSurface','unsupportedSurface','loadingSurface','viewerStatus','emptyStatus','toast'
+    'mediaSurface','unsupportedSurface','loadingSurface','viewerStatus','emptyStatus','toast',
+    'downloadButton','previewIssue','previewIssueText'
   ].map(id => [id, document.getElementById(id)]));
-  const state = { files:new Map(),current:null,revision:0,busy:false,dataURLs:new Map(),token:null,objectURL:null };
+  const state = { files:new Map(),current:null,revision:0,busy:false,dataURLs:new Map(),token:null,objectURL:null,summary:'' };
   let toastTimeout;
 
   function showToast(message) {
@@ -36,10 +37,34 @@
     if (!paths.every(p => p.startsWith(first + '/'))) return entries.map((e,i)=>({path:paths[i],blob:e.blob}));
     return entries.map((e,i)=>({path:paths[i].slice(first.length+1),blob:e.blob}));
   }
-  function isHTML(path) { return /\.html?$/i.test(path); }
-  function isImage(path) { return /\.(png|jpe?g|gif|webp|avif|bmp|svg|ico)$/i.test(path); }
-  function isMedia(path) { return /\.(mp4|webm|mp3|wav|ogg)$/i.test(path); }
-  function isText(path) { return /\.(css|js|mjs|cjs|jsx|ts|tsx|json|map|md|txt|xml|yaml|yml|vue|svelte|py|go|rs|java|kt|sh|rb|php|sql|scss|sass|less|webmanifest|csv|toml|ini|conf|gitignore|svg)$/i.test(path) || /(^|\/)README$/i.test(path); }
+  const PROJECT_ORIGIN = 'https://asro-preview.invalid';
+  function projectURL(path) {
+    return PROJECT_ORIGIN + '/' + path.split('/').map(encodeURIComponent).join('/');
+  }
+  function localPath(url) {
+    if (url.origin !== PROJECT_ORIGIN) return null;
+    try {
+      const parts = url.pathname.slice(1).split('/').map(decodeURIComponent);
+      if (parts.some(part => /[/\\\0]/.test(part))) return null;
+      return parts.join('/');
+    } catch {
+      return null;
+    }
+  }
+  function resolvePath(base, resource) {
+    if (!resource || !resource.trim() || resource.trim().startsWith('#')) return null;
+    try {
+      const url = new URL(resource, base);
+      const path = localPath(url);
+      return path === null ? null : {path, hash:url.hash};
+    } catch {
+      return null;
+    }
+  }
+  function isHTML(path) { return /\.(?:html?|xhtml)$/i.test(path); }
+  function isImage(path) { return /\.(png|jpe?g|gif|webp|avif|bmp|svg|ico|apng)$/i.test(path); }
+  function isMedia(path) { return /\.(mp4|webm|m4v|mov|mp3|wav|ogg|ogv|oga|flac|aac|m4a|opus)$/i.test(path); }
+  function isText(path) { return /\.(css|js|mjs|cjs|jsx|ts|tsx|json|map|md|txt|xml|yaml|yml|vue|svelte|py|go|rs|java|kt|sh|rb|php|sql|scss|sass|less|webmanifest|csv|toml|ini|conf|gitignore|obj|mtl|gltf|wgsl|glsl|vert|frag)$/i.test(path) || /(^|\/)README$/i.test(path); }
   function fileIcon(path) {
     if(isHTML(path))return 'html'; if(/\.(jsx?|mjs|cjs|tsx?)$/i.test(path))return 'js';
     if(/\.css$/i.test(path))return 'css'; if(isImage(path))return 'image';
@@ -53,33 +78,31 @@
   }
   function mimeFor(path) {
     const ext=path.split('.').pop().toLowerCase();
-    const types={html:'text/html',htm:'text/html',css:'text/css',js:'text/javascript',mjs:'text/javascript',jsx:'text/javascript',json:'application/json',map:'application/json',txt:'text/plain',md:'text/markdown',xml:'application/xml',svg:'image/svg+xml',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',avif:'image/avif',ico:'image/x-icon',bmp:'image/bmp',pdf:'application/pdf',wasm:'application/wasm',woff:'font/woff',woff2:'font/woff2',ttf:'font/ttf',otf:'font/otf',mp4:'video/mp4',webm:'video/webm',mp3:'audio/mpeg',ogg:'audio/ogg',wav:'audio/wav',webmanifest:'application/manifest+json'};
+    const types={html:'text/html',htm:'text/html',xhtml:'text/html',css:'text/css',js:'text/javascript',mjs:'text/javascript',jsx:'text/javascript',json:'application/json',map:'application/json',txt:'text/plain',md:'text/markdown',xml:'application/xml',svg:'image/svg+xml',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',avif:'image/avif',ico:'image/x-icon',bmp:'image/bmp',pdf:'application/pdf',wasm:'application/wasm',woff:'font/woff',woff2:'font/woff2',ttf:'font/ttf',otf:'font/otf',mp4:'video/mp4',webm:'video/webm',mp3:'audio/mpeg',ogg:'audio/ogg',wav:'audio/wav',webmanifest:'application/manifest+json',
+      gltf:'model/gltf+json',glb:'model/gltf-binary',ktx2:'image/ktx2',hdr:'image/vnd.radiance',
+      apng:'image/apng',m4v:'video/mp4',mov:'video/quicktime',ogv:'video/ogg',oga:'audio/ogg',
+      flac:'audio/flac',aac:'audio/aac',m4a:'audio/mp4',opus:'audio/ogg'};
     return types[ext]||'application/octet-stream';
   }
-  function resolvePath(from,resource) {
-    if(!resource || /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(resource)) return null;
-    const clean=resource.split(/[?#]/,1)[0].replace(/\\/g,'/');
-    const parts=clean.startsWith('/') ? [] : from.split('/').slice(0,-1);
-    for(const part of clean.split('/')){
-      if(!part || part==='.')continue;
-      if(part==='..'){if(!parts.length)return null;parts.pop();}
-      else parts.push(part);
-    }
-    return parts.join('/');
-  }
-  async function dataURL(path,asText=null) {
-    if(!state.files.has(path))return null;
-    const key=path+'|'+(asText??'');
-    if(state.dataURLs.has(key))return state.dataURLs.get(key);
-    const blob=state.files.get(path);
-    const src=asText===null ? blob : new Blob([asText],{type:mimeFor(path)});
-    const typed=asText===null ? new Blob([src],{type:mimeFor(path)}) : src;
-    const result=await new Promise((resolve,reject)=>{
-      const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(reader.error);
-      reader.readAsDataURL(typed);
+  function dataURL(project, path, transformed = null) {
+    const key = transformed === null ? path : null;
+    if (key !== null && project.dataURLs.has(key)) return project.dataURLs.get(key);
+    const blob = new Blob([transformed ?? project.files.get(path)], {type:mimeFor(path)});
+    const pending = new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
     });
-    state.dataURLs.set(key,result);
-    return result;
+    if (key !== null) project.dataURLs.set(key, pending);
+    return pending;
+  }
+  async function assetURL(project, base, resource) {
+    const target = resolvePath(base, resource);
+    if (target && project.files.has(target.path)) {
+      return await dataURL(project, target.path) + target.hash;
+    }
+    return resource;
   }
   async function replaceAsync(source,regex,replacer) {
     let out='',last=0;
@@ -89,146 +112,308 @@
     }
     return out+source.slice(last);
   }
-  async function cssContent(path,visited=new Set()) {
-    if(visited.has(path))return '';
-    const next=new Set(visited);next.add(path);
-    let css=await state.files.get(path).text();
-    css=await replaceAsync(css,/@import\s+(?:url\(\s*)?(["'])([^"']+)\1\s*\)?/gi,async m=>{
-      const target=resolvePath(path,m[2]);
-      if(!target || !state.files.has(target) || !/\.css$/i.test(target))return m[0];
-      const imported=await cssContent(target,next);
-      return m[0].replace(m[2],await dataURL(target,imported));
-    });
-    css=await replaceAsync(css,/url\(\s*(["']?)([^)"']+)\1\s*\)/gi,async m=>{
-      const target=resolvePath(path,m[2].trim());
-      if(!target || !state.files.has(target))return m[0];
-      return `url("${await dataURL(target)}")`;
-    });
-    return css;
+  async function rewriteCSS(project, css, base, ancestors = []) {
+    return replaceAsync(css,
+      /\/\*[\s\S]*?\*\/|@import\s+(?:url\(\s*(?:"([^"]*)"|'([^']*)'|([^\s)]+))\s*\)|"([^"]*)"|'([^']*)')|url\(\s*(?:"([^"]*)"|'([^']*)'|([^\s)]+))\s*\)/gi,
+      async match => {
+        const imported = match.slice(1, 6).find(value => value !== undefined);
+        if (imported !== undefined) {
+          const target = resolvePath(base, imported);
+          if (!target || !project.files.has(target.path)) return match[0];
+          const css = ancestors.includes(target.path) ? '' : await rewriteCSS(
+            project, await project.files.get(target.path).text(), projectURL(target.path), [...ancestors, target.path]
+          );
+          return '@import "' + await dataURL(project, target.path, css) + '"';
+        }
+        const resource = match[6] ?? match[7] ?? match[8];
+        if (resource === undefined) return match[0];
+        const url = await assetURL(project, base, resource);
+        return url === resource ? match[0] : 'url("' + url + '")';
+      });
   }
-  function moduleKey(path){return '@asro/'+encodeURIComponent(path);}
-  function rewriteJS(code,path) {
-    const convert=(_,prefix,quote,spec)=>{
-      const target=resolvePath(path,spec);
-      return prefix+quote+(target && state.files.has(target) ? moduleKey(target) : spec)+quote;
+  function moduleKey(path) { return '@asro/' + encodeURIComponent(path); }
+  function rewriteJS(code, base, project) {
+    const convert = (whole, prefix, quote, specifier) => {
+      if (!/^(?:\.{1,2}\/|\/)/.test(specifier)) return whole;
+      const target = resolvePath(base, specifier);
+      return target && project.files.has(target.path) ? prefix + quote + moduleKey(target.path) + quote : whole;
     };
-    return code
-      .replace(/(\b(?:import|export)\s+(?:[^;]*?\s+from\s*))(["'])([^"']+)\2/g,convert)
-      .replace(/(\bimport\s*)(["'])([^"']+)\2/g,convert)
-      .replace(/(\bimport\s*\(\s*)(["'])([^"']+)\2/g,convert);
+    const pattern = /\/\/[^\r\n]*|\/\*[\s\S]*?\*\/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`|\bimport\.meta\.url\b|(\b(?:(?:import|export)\s+(?:[\w$*{},\s]+?\s+from\s*)|import\s*(?:\(\s*)?))(["'])([^"'\r\n]+)\2/g;
+    return code.replace(pattern, (whole, prefix, quote, specifier) => {
+      if (whole === 'import.meta.url') return JSON.stringify(base);
+      return prefix ? convert(whole, prefix, quote, specifier) : whole;
+    });
   }
-  async function buildImportMap() {
-    const imports={};
-    for(const path of state.files.keys()) {
-      if(!/\.(?:js|mjs)$/i.test(path))continue;
-      const blob=state.files.get(path);
-      if(blob.size>8*1024*1024)throw new Error('JavaScriptファイルは1つ8MB以下にしてね。');
-      imports[moduleKey(path)]=await dataURL(path,rewriteJS(await blob.text(),path));
+  async function buildImportMap(project) {
+    const imports = Object.create(null);
+    for (const [path, blob] of project.files) {
+      if (!/\.(?:js|mjs|json)$/i.test(path)) continue;
+      let source = null;
+      if (!/\.json$/i.test(path)) {
+        const original = await blob.text();
+        const edited = rewriteJS(original, projectURL(path), project);
+        if (edited !== original) source = edited;
+      }
+      imports[moduleKey(path)] = await dataURL(project, path, source);
     }
-    // Enable imports for uploaded Three.js ESM modules.
-    const known = [['three','node_modules/three/build/three.module.js'],['@babylonjs/core','node_modules/@babylonjs/core/index.js'],['@babylonjs/loaders','node_modules/@babylonjs/loaders/index.js']];
-    for(const [name,path] of known)if(imports[moduleKey(path)])imports[name]=imports[moduleKey(path)];
-    for(const path of state.files.keys()) {
-      if(!path.startsWith('node_modules/three/examples/jsm/') || !/\.(?:js|mjs)$/i.test(path))continue;
-      const sub=path.slice('node_modules/three/examples/jsm/'.length);
-      imports['three/addons/'+sub]=imports[moduleKey(path)];
-      imports['three/examples/jsm/'+sub]=imports[moduleKey(path)];
+    const packages = [
+      ['three', 'node_modules/three/build/three.module.js'],
+      ['@babylonjs/core', 'node_modules/@babylonjs/core/index.js'],
+      ['@babylonjs/loaders', 'node_modules/@babylonjs/loaders/index.js']
+    ];
+    for (const [name, path] of packages) {
+      if (imports[moduleKey(path)]) imports[name] = imports[moduleKey(path)];
+    }
+    for (const path of project.files.keys()) {
+      const prefix = 'node_modules/three/examples/jsm/';
+      if (path.startsWith(prefix) && imports[moduleKey(path)]) {
+        imports['three/addons/' + path.slice(prefix.length)] = imports[moduleKey(path)];
+        imports['three/examples/jsm/' + path.slice(prefix.length)] = imports[moduleKey(path)];
+      }
     }
     return imports;
   }
-  function bridgeSource(token,entry) {
-    // The iframe has an opaque origin and receives *only* requested local files.
-    return `(function(){'use strict';
-      const token=${JSON.stringify(token)},entry=${JSON.stringify(entry)};
-      const paths=new Set(${JSON.stringify([...state.files.keys()])});
-      const pending=new Map();let counter=0;
-      function relative(input){
-        if(!input||/^(?:[a-z][a-z0-9+.-]*:|\\/\\/|#)/i.test(input))return null;
-        const s=input.split(/[?#]/,1)[0].replace(/\\\\/g,'/');
-        const arr=s.startsWith('/')?[]:entry.split('/').slice(0,-1);
-        for(const part of s.split('/')){if(!part||part==='.')continue;if(part==='..'){if(!arr.length)return null;arr.pop();}else arr.push(part);}
-        return arr.join('/');
-      }
-      const nativeFetch=window.fetch.bind(window);
-      window.fetch=function(resource,options){
-        const input=typeof resource==='string'?resource:(resource instanceof URL?resource.href:resource?.url);
-        const path=relative(input);
-        if(!path||!paths.has(path))return nativeFetch(resource,options);
-        return new Promise((resolve,reject)=>{
-          const id=++counter;pending.set(id,{resolve,reject});
-          parent.postMessage({asroPreview:true,token,kind:'fetch',id,path},'*');
-        }).then(message=>new Response(message.bytes,{status:message.status,headers:{'Content-Type':message.mime}}));
-      };
-      window.addEventListener('message',event=>{
-        if(event.source!==parent)return;
-        const m=event.data;
-        if(!m||!m.asroPreview||m.token!==token||m.kind!=='fetch-result')return;
-        const entry=pending.get(m.id);if(!entry)return;pending.delete(m.id);
-        if(m.error)entry.reject(new Error(m.error));else entry.resolve(m);
-      });
-      document.addEventListener('click',event=>{
-        const a=event.target.closest?.('a[href]');if(!a)return;
-        const target=relative(a.getAttribute('href'));
-        if(target&&paths.has(target)&&/\\.html?$/i.test(target)){
-          event.preventDefault();parent.postMessage({asroPreview:true,token,kind:'open',path:target},'*');
-        }
-      });
-    })();`;
+  function scriptJSON(value) {
+    return JSON.stringify(value).replace(/</g, '\\u003c');
   }
-  async function buildHTML(path) {
-    const source=await state.files.get(path).text();
-    const doc=new DOMParser().parseFromString(source,'text/html');
-    for(const base of doc.querySelectorAll('base'))base.remove();
-    for(const refresh of doc.querySelectorAll('meta[http-equiv="refresh" i]'))refresh.remove();
-    const imports=await buildImportMap();
-    for(const script of doc.querySelectorAll('script')) {
-      const src=script.getAttribute('src');
-      const isModule=script.getAttribute('type')?.toLowerCase()==='module';
-      if(src) {
-        const target=resolvePath(path,src);
-        if(target && state.files.has(target)) {
-          script.setAttribute('src',isModule&&imports[moduleKey(target)] ? imports[moduleKey(target)] : await dataURL(target));
-        }
-      }else if(isModule)script.textContent=rewriteJS(script.textContent,path);
-    }
-    for(const link of doc.querySelectorAll('link[href]')) {
-      const url=link.getAttribute('href');const target=resolvePath(path,url);
-      if(!target||!state.files.has(target))continue;
-      const rel=link.rel?.toLowerCase()||'';
-      if(rel.includes('stylesheet')&&/\.css$/i.test(target))link.href=await dataURL(target,await cssContent(target));
-      else link.href=await dataURL(target);
-    }
-    for(const style of doc.querySelectorAll('style')) {
-      let css=style.textContent;
-      css=await replaceAsync(css,/url\(\s*(["']?)([^)"']+)\1\s*\)/gi,async m=>{
-        const target=resolvePath(path,m[2].trim());
-        return target&&state.files.has(target)?`url("${await dataURL(target)}")`:m[0];
+  function installPreviewBridge(token, base, projectOrigin, paths) {
+    const available = new Set(paths);
+    const pending = new Map();
+    let counter = 0;
+    const send = (kind, details) => parent.postMessage({asroPreview:true, token, kind, ...details}, '*');
+    const nativeFetch = window.fetch.bind(window);
+    async function fetchAsset(resource, options) {
+      const input = resource instanceof Request ? resource.url : String(resource);
+      const url = new URL(input, base);
+      if (url.origin !== projectOrigin) {
+        return nativeFetch(resource instanceof Request ? resource : url.href, options);
+      }
+      const path = localPath(url);
+      const method = (options?.method ?? (resource instanceof Request ? resource.method : 'GET')).toUpperCase();
+      if (method !== 'GET' && method !== 'HEAD') return new Response(null, {status:405});
+      if (!available.has(path)) {
+        send('issue', {message:'関連ファイルが見つかりません: ' + url.pathname});
+        return new Response(null, {status:404});
+      }
+      const signal = options?.signal ?? (resource instanceof Request ? resource.signal : null);
+      if (signal?.aborted) throw signal.reason;
+      const message = await new Promise((resolve, reject) => {
+        const id = ++counter;
+        const abort = () => {
+          pending.delete(id);
+          reject(signal.reason);
+        };
+        signal?.addEventListener('abort', abort, {once:true});
+        pending.set(id, value => {
+          signal?.removeEventListener('abort', abort);
+          resolve(value);
+        });
+        send('fetch', {id, path, head:method === 'HEAD'});
       });
-      style.textContent=css;
+      if (message.error) throw new TypeError(message.error);
+      const response = new Response(message.bytes ?? null, {
+        headers:{'Content-Type':message.mime, 'Content-Length':String(message.size)}
+      });
+      Object.defineProperty(response, 'url', {value:url.href});
+      return response;
     }
-    for(const el of doc.querySelectorAll('[src], [poster]')) {
-      if(el.tagName==='SCRIPT')continue;
-      for(const attr of ['src','poster']){
-        const raw=el.getAttribute(attr);const target=resolvePath(path,raw);
-        if(target&&state.files.has(target))el.setAttribute(attr,await dataURL(target));
+    window.fetch = fetchAsset;
+    window.addEventListener('message', event => {
+      const msg = event.data;
+      if (event.source !== parent || !msg?.asroPreview || msg.token !== token || msg.kind !== 'fetch-result') return;
+      pending.get(msg.id)?.(msg);
+      pending.delete(msg.id);
+    });
+    // Image loaders commonly assign to image.src instead of using fetch.
+    const src = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+    const imageRequests = new WeakMap();
+    const imageAssets = new Map();
+    Object.defineProperty(HTMLImageElement.prototype, 'src', {
+      ...src,
+      set(input) {
+        const target = resolvePath(base, String(input));
+        if (!target || !available.has(target.path)) {
+          imageRequests.delete(this);
+          src.set.call(this, input);
+          return;
+        }
+        const original = this.getAttribute('src');
+        imageRequests.set(this, target);
+        if (!imageAssets.has(target.path)) {
+          const fileURL = new URL(String(input), base);
+          fileURL.hash = '';
+          const asset = fetchAsset(fileURL).then(async response => {
+            return URL.createObjectURL(await response.blob());
+          });
+          imageAssets.set(target.path, asset);
+          asset.catch(() => imageAssets.delete(target.path));
+        }
+        imageAssets.get(target.path).then(url => {
+          if (imageRequests.get(this) !== target || this.getAttribute('src') !== original) return;
+          src.set.call(this, url + target.hash);
+        }, () => {
+          if (imageRequests.get(this) === target) {
+            send('issue', {message:'画像の読み込みに失敗: ' + target.path});
+          }
+        });
+      }
+    });
+    window.addEventListener('error', event => {
+      const element = event.target;
+      const resource = element?.getAttribute?.('src') ?? element?.getAttribute?.('href');
+      if (event.message || resource) {
+        send('issue', {message:event.message || (/^data:/i.test(resource)
+          ? '埋め込んだ素材を読み込めませんでした。'
+          : '素材の読み込みに失敗: ' + resource.slice(0, 160))});
+      }
+    }, true);
+    window.addEventListener('unhandledrejection', event => {
+      send('issue', {message:String(event.reason?.message ?? event.reason ?? 'JavaScript エラー')});
+    });
+    document.addEventListener('click', event => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const link = event.target.closest?.('a[href]');
+      const href = link?.getAttribute('href');
+      if (!href || link.hasAttribute('download')) return;
+      if (href.startsWith('#')) {
+        event.preventDefault();
+        if (href === '#') window.scrollTo(0, 0);
+        else scrollToAnchor(href);
+        return;
+      }
+      const target = resolvePath(base, href);
+      if (!target) return;
+      if (!available.has(target.path)) target.path = target.path.replace(/\/?$/, '/') + 'index.html';
+      target.path = target.path.replace(/^\//, '');
+      if (available.has(target.path) && /\.(?:html?|xhtml)$/i.test(target.path)) {
+        event.preventDefault();
+        send('open', target);
+      }
+    });
+  }
+  function scrollToAnchor(hash) {
+    let id = hash.slice(1);
+    try { id = decodeURIComponent(id); } catch { /* Use the literal fragment. */ }
+    (document.getElementById(id) ?? document.getElementsByName(id)[0])?.scrollIntoView();
+  }
+
+  async function buildHTML(path, project, token, hash) {
+    const source = await project.files.get(path).text();
+    const doc = new DOMParser().parseFromString(source, 'text/html');
+    const entryURL = projectURL(path);
+    const baseElement = doc.querySelector('base[href]');
+    let base = entryURL;
+    if (baseElement) {
+      try { base = new URL(baseElement.getAttribute('href'), entryURL).href; }
+      catch { /* Use the entry URL for invalid base elements. */ }
+    }
+    for (const element of doc.querySelectorAll('base[href]')) element.removeAttribute('href');
+    const documentBase = baseElement ?? doc.createElement('base');
+    documentBase.href = base;
+    doc.head.prepend(documentBase);
+    for (const refresh of doc.querySelectorAll('meta[http-equiv="refresh" i]')) refresh.remove();
+
+    const scripts = [...doc.querySelectorAll('script')];
+    const hasModules = scripts.some(script => /^(?:module|importmap)$/i.test(script.type)) ||
+      [...project.files.keys()].some(name => /\.(?:js|mjs)$/i.test(name));
+    const imports = hasModules ? await buildImportMap(project) : {};
+    const mapped = Object.keys(imports).length > 0;
+    const resolveImport = value => {
+      if (typeof value !== 'string') return value;
+      const target = resolvePath(base, value);
+      return target ? (imports[moduleKey(target.path)] ?? value) : value;
+    };
+    const maps = scripts.filter(script => script.type.toLowerCase() === 'importmap' && !script.src);
+    for (const [index, map] of maps.entries()) {
+      try {
+        const config = JSON.parse(map.textContent);
+        for (const imports of [config.imports, ...Object.values(config.scopes ?? {})]) {
+          if (!imports || typeof imports !== 'object') continue;
+          for (const name of Object.keys(imports)) imports[name] = resolveImport(imports[name]);
+        }
+        if (index === 0 && mapped) config.imports = {...imports, ...config.imports};
+        map.textContent = scriptJSON(config);
+      } catch { /* Let the browser report invalid import maps. */ }
+    }
+    if (mapped && !maps.length) {
+      const map = doc.createElement('script');
+      map.type = 'importmap';
+      map.textContent = scriptJSON({imports});
+      documentBase.after(map);
+    }
+    for (const script of scripts) {
+      const src = script.getAttribute('src');
+      const type = script.type.trim().toLowerCase();
+      const isModule = type === 'module';
+      const isJavaScript = isModule || !type || /^(?:text|application)\/(?:x-)?(?:javascript|ecmascript)$/.test(type);
+      if (!isJavaScript) continue;
+      if (src) {
+        const target = resolvePath(base, src);
+        if (target && project.files.has(target.path)) {
+          if (isModule && imports[moduleKey(target.path)]) {
+            script.src = imports[moduleKey(target.path)];
+            script.removeAttribute('integrity');
+          } else {
+            const blob = project.files.get(target.path);
+            const code = await blob.text();
+            const edited = rewriteJS(code, projectURL(target.path), project);
+            script.src = await dataURL(project, target.path, edited === code ? null : edited);
+            if (edited !== code) script.removeAttribute('integrity');
+          }
+        }
+      } else if (isModule || mapped) {
+        script.textContent = rewriteJS(script.textContent, base, project);
       }
     }
-    for(const el of doc.querySelectorAll('[srcset]')) {
-      const srcset=el.getAttribute('srcset');
-      const components=srcset.split(',');
-      const rewritten=[];
-      for(const part of components){
-        const match=part.trim().match(/^(\S+)(\s+.*)?$/);if(!match){rewritten.push(part);continue;}
-        const target=resolvePath(path,match[1]);
-        rewritten.push(target&&state.files.has(target)?`${await dataURL(target)}${match[2]||''}`:part);
+    for (const link of doc.querySelectorAll('link[href]')) {
+      const raw = link.getAttribute('href');
+      const target = resolvePath(base, raw);
+      if (!target || !project.files.has(target.path)) continue;
+      if (link.relList.contains('stylesheet')) {
+        const blob = project.files.get(target.path);
+        const css = await rewriteCSS(project, await blob.text(), projectURL(target.path), [target.path]);
+        link.href = await dataURL(project, target.path, css);
+        link.removeAttribute('integrity');
+      } else if (link.relList.contains('modulepreload') && imports[moduleKey(target.path)]) {
+        link.href = imports[moduleKey(target.path)];
+        link.removeAttribute('integrity');
+      } else {
+        link.href = await assetURL(project, base, raw);
       }
-      el.setAttribute('srcset',rewritten.join(', '));
     }
-    const importEl=doc.createElement('script');importEl.type='importmap';importEl.textContent=JSON.stringify({imports}).replace(/</g,'\\u003c');
-    doc.head.insertBefore(importEl,doc.head.firstChild);
-    const shim=doc.createElement('script');shim.textContent=bridgeSource(state.token,path);
-    doc.head.insertBefore(shim,importEl.nextSibling);
-    return '<!doctype html>\n'+doc.documentElement.outerHTML;
+    for (const style of doc.querySelectorAll('style')) {
+      style.textContent = await rewriteCSS(project, style.textContent, base);
+    }
+    for (const node of doc.querySelectorAll('[style], [src], [poster], svg [href], svg [xlink\\:href]')) {
+      if (node.hasAttribute('style')) {
+        node.setAttribute('style', await rewriteCSS(project, node.getAttribute('style'), base));
+      }
+      if (node.localName === 'script') continue;
+      const attrs = node.namespaceURI === 'http://www.w3.org/2000/svg'
+        ? ['href', 'xlink:href'] : ['src', 'poster'];
+      for (const attr of attrs) {
+        if (!node.hasAttribute(attr)) continue;
+        node.setAttribute(attr, await assetURL(project, base, node.getAttribute(attr)));
+      }
+    }
+    for (const node of doc.querySelectorAll('[srcset]')) {
+      const srcset = node.getAttribute('srcset');
+      const rewritten = await replaceAsync(srcset, /(?:^|,)\s*(data:[^\s]+|[^\s,]+)(?:\s+[^,]+)?/gi, async match => {
+        const [candidate, url] = match;
+        if (/^data:/i.test(url)) return candidate;
+        const offset = candidate.indexOf(url);
+        return candidate.slice(0, offset) + await assetURL(project, base, url) + candidate.slice(offset + url.length);
+      });
+      node.setAttribute('srcset', rewritten);
+    }
+    const shim = doc.createElement('script');
+    shim.textContent = '(function(){const PROJECT_ORIGIN=' + scriptJSON(PROJECT_ORIGIN) + ';' +
+      localPath.toString() + ';' + resolvePath.toString() + ';' + scrollToAnchor.toString() + ';(' + installPreviewBridge.toString() +
+      ')(' + [token, base, PROJECT_ORIGIN, [...project.files.keys()]].map(scriptJSON).join(',') + ');' +
+      (hash.startsWith('#') ? 'addEventListener("load",()=>scrollToAnchor(' + scriptJSON(hash) + '));' : '') + '})();';
+    doc.head.prepend(shim);
+    const doctype = doc.doctype ? new XMLSerializer().serializeToString(doc.doctype) + '\n' : '';
+    return doctype + doc.documentElement.outerHTML;
   }
   function releaseObjectURL() {if(state.objectURL){URL.revokeObjectURL(state.objectURL);state.objectURL=null;}}
   function randomToken() {
@@ -265,18 +450,20 @@
   async function importEntries(raw) {
     if(state.busy)return;
     state.busy=true;
+    const initialFiles=state.files;
     status('ファイルを準備中...');
     try {
       if(!raw.length)throw new Error('ファイルが見つかりませんでした。');
-      let incoming=[];
+      const loose = [];
+      const incoming = [];
       for(const item of raw) {
         if(/\.zip$/i.test(item.path)){
           const unpacked=await window.ASROZip.unpackZip(item.blob);
           incoming.push(...removeCommonFolder(unpacked));
-        }else incoming.push(item);
-        if(incoming.length>MAX_FILES)throw new Error('ファイルは最大2,000個までです。');
+        } else loose.push(item);
+        if(incoming.length + loose.length > MAX_FILES)throw new Error('ファイルは最大2,000個までです。');
       }
-      incoming=removeCommonFolder(incoming);
+      incoming.push(...removeCommonFolder(loose));
       const next=new Map(state.files);
       for(const item of incoming) {
         const path=normalizePath(item.path);
@@ -286,16 +473,16 @@
       if(next.size>MAX_FILES)throw new Error('ファイルは最大2,000個までです。');
       const total=[...next.values()].reduce((sum,blob)=>sum+blob.size,0);
       if(total>MAX_TOTAL)throw new Error('ファイルの合計は150MB以下にしてね。');
+      if (state.files !== initialFiles) return;
       const oldCurrent=state.current;
       state.files=next;
-      state.dataURLs.clear();
-      state.token=randomToken();
+      state.dataURLs=new Map();
+      state.summary=`${next.size} ファイル · ${formatSize(total)} · ローカルのみ`;
       const htmlFiles=[...next.keys()].filter(isHTML).sort((a,b)=>a.length-b.length || a.localeCompare(b));
       const selection=oldCurrent && next.has(oldCurrent) ? oldCurrent : htmlFiles.find(f=>f.toLowerCase()==='index.html') || htmlFiles.find(f=>f.split('/').pop().toLowerCase()==='index.html') || htmlFiles[0] || [...next.keys()][0];
       elements.emptyView.hidden=true;elements.workspace.hidden=false;elements.addButton.hidden=false;
       renderFiles();
       await selectFile(selection);
-      status(`${next.size} ファイル · ${formatSize(total)} · ローカルのみ`);
     } catch(error) {
       showToast(error?.message || 'ファイルを読み込めませんでした。');
       status('読み込みに失敗しました');
@@ -326,22 +513,32 @@
     elements.mediaSurface.replaceChildren();
     elements.previewFrame.srcdoc='';
     elements.imagePreview.removeAttribute('src');
+    elements.previewIssue.hidden = true;
+    elements.previewIssue.open = false;
     releaseObjectURL();
   }
-  async function selectFile(path) {
+  function reportIssue(message) {
+    if (!elements.previewIssue.hidden) return;
+    elements.previewIssueText.textContent = message.slice(0, 300);
+    elements.previewIssue.hidden = false;
+  }
+  async function selectFile(path, hash = '') {
     if(!state.files.has(path))return;
     state.current=path;
     state.revision++;
     const rev=state.revision;
+    const token=randomToken();
+    state.token=token;
     const blob=state.files.get(path);
     elements.currentTitle.textContent=path.split('/').pop();elements.currentTitle.title=path;
     elements.entrySelect.value=isHTML(path)?path:'';
     for(const button of elements.fileList.querySelectorAll('.file-item'))button.classList.toggle('selected',button.title===path);
     hideSurfaces();
+    status(state.summary);
     if(isHTML(path)) {
       elements.loadingSurface.hidden=false;
       try {
-        const html=await buildHTML(path);
+        const html=await buildHTML(path, {files:state.files, dataURLs:state.dataURLs}, token, hash);
         if(rev!==state.revision)return;
         elements.loadingSurface.hidden=true;
         elements.previewFrame.hidden=false;
@@ -349,7 +546,8 @@
       } catch(error) {
         if(rev!==state.revision)return;
         elements.loadingSurface.hidden=true;elements.unsupportedSurface.hidden=false;
-        elements.unsupportedSurface.textContent=error?.message || 'プレビューを生成できませんでした。';
+        elements.unsupportedSurface.textContent='プレビューを準備できませんでした。';
+        reportIssue(error?.message || 'HTML を読み込めませんでした。');
       }
     } else if(isImage(path)) {
       state.objectURL=URL.createObjectURL(new Blob([blob],{type:mimeFor(path)}));
@@ -359,9 +557,12 @@
     } else if(isMedia(path)) {
       state.objectURL=URL.createObjectURL(new Blob([blob],{type:mimeFor(path)}));
       elements.mediaSurface.hidden=false;
-      const video=/\.(mp4|webm)$/i.test(path);
+      const video=/\.(mp4|webm|m4v|mov|ogv)$/i.test(path);
       const media=document.createElement(video?'video':'audio');
       media.controls=true;media.preload='metadata';media.src=state.objectURL;
+      media.addEventListener('error', () => {
+        if (rev === state.revision) reportIssue('このブラウザで再生できる形式か確認してください。');
+      }, {once:true});
       elements.mediaSurface.append(media);
     } else if(isText(path)) {
       elements.codePreview.hidden=false;
@@ -372,13 +573,14 @@
         elements.codePreview.querySelector('code').textContent=content;
       }
     } else {
+      elements.unsupportedSurface.textContent = 'この形式のファイルはダウンロードして開けます。';
       elements.unsupportedSurface.hidden=false;
     }
   }
   function closeSidebar(){elements.sidebar.classList.remove('open');elements.toggleFiles.setAttribute('aria-expanded','false');}
   async function resetProject() {
-    elements.previewFrame.src='about:blank';
-    state.files.clear();state.dataURLs.clear();state.token=null;state.current=null;state.revision++;releaseObjectURL();
+    hideSurfaces();
+    state.files=new Map();state.dataURLs=new Map();state.token=null;state.current=null;state.revision++;
     elements.workspace.hidden=true;elements.emptyView.hidden=false;elements.addButton.hidden=true;
     closeSidebar();status('ログイン不要・ブラウザだけで完結');
   }
@@ -391,6 +593,18 @@
   elements.folderInput.addEventListener('change',()=>processFileInput(elements.folderInput));
   elements.entrySelect.addEventListener('change',()=>{const path=elements.entrySelect.value;if(path)selectFile(path);});
   elements.reloadButton.addEventListener('click',()=>{if(state.current)selectFile(state.current);});
+  elements.downloadButton.addEventListener('click', () => {
+    const blob = state.files.get(state.current);
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = state.current.split('/').pop();
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  });
   elements.fullscreenButton.addEventListener('click', async()=>{
     try {
       if(document.fullscreenElement) await document.exitFullscreen();
@@ -407,11 +621,15 @@
   document.addEventListener('drop',async e=>{e.preventDefault();elements.appShell.classList.remove('drag-over');if(!e.dataTransfer?.files.length)return;try{await importEntries(await fromDrop(e));}catch(err){showToast(err?.message||'読み込みに失敗しました。');}});
   // The preview uses an opaque-origin iframe, with no Service Worker or server.
   window.addEventListener('message',async(event)=>{
-    if(event.source!==elements.previewFrame.contentWindow)return;
+    if(event.source!==elements.previewFrame.contentWindow || elements.previewFrame.hidden)return;
     const msg=event.data;
     if(!msg||!msg.asroPreview||msg.token!==state.token)return;
     if(msg.kind==='open'){
-      if(state.files.has(msg.path)&&isHTML(msg.path))selectFile(msg.path);
+      if(state.files.has(msg.path)&&isHTML(msg.path))selectFile(msg.path, typeof msg.hash === 'string' ? msg.hash : '');
+      return;
+    }
+    if(msg.kind === 'issue' && typeof msg.message === 'string') {
+      reportIssue(msg.message);
       return;
     }
     if(msg.kind!=='fetch'||!Number.isInteger(msg.id))return;
@@ -420,9 +638,9 @@
     const token=state.token;
     const frame=elements.previewFrame.contentWindow;
     try{
-      const bytes=await target.arrayBuffer();
+      const bytes=msg.head === true ? null : await target.arrayBuffer();
       if(token!==state.token||frame!==elements.previewFrame.contentWindow)return;
-      frame.postMessage({asroPreview:true,token,kind:'fetch-result',id:msg.id,status:200,mime:mimeFor(msg.path),bytes},'*',[bytes]);
+      frame.postMessage({asroPreview:true,token,kind:'fetch-result',id:msg.id,mime:mimeFor(msg.path),size:target.size,bytes},'*',bytes ? [bytes] : []);
     }catch(error){
       frame.postMessage({asroPreview:true,token,kind:'fetch-result',id:msg.id,error:'ファイルを読み込めませんでした'},'*');
     }

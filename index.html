@@ -58,6 +58,7 @@
             <div class="viewer-toolbar-right">
               <label for="entrySelect" class="entry-label">表示</label>
               <select id="entrySelect" aria-label="プレビューするHTMLファイル"></select>
+              <button class="button-icon" id="downloadButton" type="button" aria-label="ファイルをダウンロード" title="ダウンロード"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></button>
               <button class="button-icon" id="fullscreenButton" type="button" aria-label="プレビューを全画面表示" title="全画面表示">⛶</button>
               <button class="button-icon" id="reloadButton" type="button" aria-label="再読み込み" title="再読み込み"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.2 6M20 4v7h-7"/></svg></button>
             </div>
@@ -70,6 +71,10 @@
             <div id="unsupportedSurface" class="unsupported-surface" hidden><span>このファイルはブラウザ内で直接表示できません。</span></div>
             <div id="loadingSurface" class="loading-surface" hidden>準備中...</div>
           </div>
+          <details id="previewIssue" class="preview-issue" hidden>
+            <summary>プレビューでエラーが発生しました</summary>
+            <p id="previewIssueText"></p>
+          </details>
           <div class="viewer-footer"><span id="viewerStatus" role="status" aria-live="polite">準備完了</span><span class="footer-right">LOCAL PREVIEW <span class="footer-divider">·</span> ASRO</span></div>
         </div>
       </section>

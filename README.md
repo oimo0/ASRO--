@@ -12,8 +12,9 @@ HTML・CSS・JavaScript・画像などが入った**複数ファイルのWebサ�
 - **HTML表示**：`index.html` を自動検出。複数HTML間で切り替え、HTMLリンクで移動
 - **関連ファイルの読み込み**：`<link href="./style.css">`、`<script src="./app.js">`、画像・フォントなど
 - **JavaScriptモジュール**：静的import・export・動的importをインポートマップで解決
-- **ローカルfetch**：`fetch('./data.json')` などは読み込んだファイルから取得（※HTMLからの相対パス）
+- **ローカルfetch**：HTMLからの相対パスに加え、モジュールからの `fetch(new URL('./asset.glb', import.meta.url))` に対応。日本語や空白を含むパス、GET / HEAD も扱えます。
 - **コード表示**：JS・CSS・JSON・テキストをファイル一覧から確認
+- **エラー表示とダウンロード**：プレビュー画面で実行時エラーを確認し、選んだファイルを元の形式で保存できます。
 - **Canvas / WebGL**：Canvas 2D・WebGL / WebGL2を使うアニメーションや3Dシーンに対応（ブラウザ・GPU依存）
 - **音声と動画**：Web Audio、ブラウザ音声合成、MediaRecorder、canvas.captureStreamを利用した再生・動画保存を許可
 - **3D操作**：ポインターロック、フルスクリーン、マウス/タッチ操作に対応
@@ -61,7 +62,7 @@ GitHub Pagesを使う場合は **Settings → Pages → Deploy from a branch →
 - **ブラウザで動くWebサイトのプレビュー**が目的。Node.js・PHP・Pythonサーバー、DB、任意のnpmパッケージの実行・導入はできない。
 - TypeScript・JSX・React・Vue・Svelteの**未ビルドのソースコード**はコンパイルしない。Vite等の `dist/` や `build/` フォルダを読み込んでね。
 - 通常のCSS/JSの外部リソース参照やHTMLリンクは対応するが、JavaScript実行時に組み立てる独自URLや、`import.meta.url` に依存する全パターン、XHR、SPAの履歴制御、外部サービスのCORS制限まで完全再現するものではない。
-- JavaScriptの読み込みは1ファイル8MBまで。閲覧するソースコードは2MB超でテキスト表示を省略する。
+- 閲覧するソースコードは2MB超でテキスト表示を省略する。
 - HTML上のプレビューで使ったURLは、通常の公開Web URLとして共有できない（ローカルメモリ内のデータだから）。
 
 ## 構成
